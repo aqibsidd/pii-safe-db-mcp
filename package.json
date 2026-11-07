@@ -1,7 +1,7 @@
 {
   "name": "pii-safe-db-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for MySQL & PostgreSQL that masks PII (emails, phones, names, Aadhaar, PAN, cards...) before results ever reach the LLM. Read-only by design.",
+  "version": "0.2.0",
+  "description": "MCP server for MySQL & PostgreSQL that masks PII before it reaches the LLM, with SQL AST policy enforcement (no sensitive columns in WHERE/JOIN/GROUP BY/ORDER BY), table allowlists, audit logging and Indian PII recognisers. Read-only by design.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && chmod +x dist/index.js",
@@ -21,7 +21,17 @@
     "llm",
     "claude",
     "gdpr",
-    "dpdp"
+    "dpdp",
+    "sql-ast",
+    "audit-log",
+    "aadhaar",
+    "pan",
+    "gstin",
+    "upi",
+    "dpdp-act",
+    "data-governance",
+    "postgres-mcp",
+    "mysql-mcp"
   ],
   "author": "Aqib Siddiqui",
   "license": "MIT",
@@ -29,6 +39,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "mysql2": "^3.24.6",
+    "node-sql-parser": "^5.4.0",
     "pg": "^8.23.1",
     "zod": "^4.6.7"
   },
@@ -42,7 +53,9 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {

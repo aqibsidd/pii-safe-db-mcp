@@ -128,6 +128,23 @@ export function assertNoBlockedColumns(sql: string, blocked: Set<string>): void 
   }
 }
 
+/**
+ * Query "shape" for audit logs: comments removed, every literal replaced by `?`.
+ * Safe to log — it contains no data values, only identifiers and structure.
+ */
+export function normaliseSql(sql: string): string {
+  return sql
+    .replace(/--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\//g, " ")
+    .replace(/'(?:[^'\\]|\\.|'')*'/g, "?")
+    // MySQL treats "..." as a string literal; keep only plain identifiers.
+    .replace(/"((?:[^"\\]|\\.|"")*)"/g, (m, inner: string) => (/^[A-Za-z_][\w$]*$/.test(inner) ? m : "?"))
+    .replace(/\$([A-Za-z_]\w*)?\$[\s\S]*?\$\1\$/g, "?")
+    .replace(/(?<![\w$])-?\d+(?:\.\d+)?(?:e[+-]?\d+)?(?![\w])/gi, "?")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
+}
+
 export function isValidIdentifier(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)?$/.test(name);
 }
