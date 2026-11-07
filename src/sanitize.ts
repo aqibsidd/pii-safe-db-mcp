@@ -1,4 +1,4 @@
-import type { QueryResult } from "./db.js";
+import type { ColumnMeta, QueryResult } from "./db.js";
 import { classifyColumn, sanitiseValue, type PiiOptions, type PiiType, type ScanStats } from "./pii.js";
 
 export interface SafeResult {
@@ -10,8 +10,23 @@ export interface SafeResult {
   inlinePiiMasked: ScanStats;
 }
 
-export function sanitiseResult(result: QueryResult, opts: PiiOptions, maxRows: number): SafeResult {
-  const colTypes = result.columns.map((c) => classifyColumn([c.name, c.originalName], c.table, opts));
+export interface MaskHints {
+  /** Extra classifier (e.g. policy-listed sensitive columns by source table). */
+  classify?: (c: ColumnMeta) => PiiType | null;
+  /** Force-mask by output position (from AST analysis). */
+  forceIndexes?: Map<number, PiiType> | null;
+  /** Force-mask by output column name (from AST analysis). */
+  forceNames?: Map<string, PiiType>;
+}
+
+export function sanitiseResult(result: QueryResult, opts: PiiOptions, maxRows: number, hints: MaskHints = {}): SafeResult {
+  const colTypes = result.columns.map(
+    (c, i) =>
+      hints.forceIndexes?.get(i) ??
+      hints.forceNames?.get(c.name.toLowerCase()) ??
+      hints.classify?.(c) ??
+      classifyColumn([c.name, c.originalName], c.table, opts),
+  );
   const maskedColumns: Record<string, PiiType> = {};
   result.columns.forEach((c, i) => {
     const t = colTypes[i];
@@ -44,4 +59,10 @@ export function sanitiseResult(result: QueryResult, opts: PiiOptions, maxRows: n
     maskedColumns,
     inlinePiiMasked: inline,
   };
+}
+
+export function countPii(r: SafeResult): number {
+  const masked = Object.keys(r.maskedColumns).length * r.rows.length;
+  const inline = Object.values(r.inlinePiiMasked).reduce((a, b) => a + b, 0);
+  return masked + inline;
 }

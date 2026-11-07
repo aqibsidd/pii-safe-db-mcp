@@ -1,0 +1,29 @@
+{
+  "allowed_tables": ["customers", "loans", "payments"],
+  "denied_tables": ["internal_audit", "kyc_documents"],
+  "default": {
+    "allow_filtering": true,
+    "allow_joining": true,
+    "allow_grouping": true,
+    "allow_sorting": true
+  },
+  "tables": {
+    "customers": {
+      "sensitive_columns": ["name", "mobile", "pan", "aadhaar", "email", "customer_ref"],
+      "blocked_columns": ["kyc_document_url"],
+      "allow_filtering": false,
+      "allow_joining": false,
+      "allow_grouping": false,
+      "allow_sorting": false
+    },
+    "loans": {
+      "sensitive_columns": ["pan", "borrower_name"],
+      "allow_joining": false
+    }
+  },
+  "custom_patterns": [
+    { "name": "LOAN_ID", "pattern": "\\bLN\\d{8}\\b", "column_names": ["loan_no"] }
+  ],
+  "fail_closed": true,
+  "treat_detected_pii_as_sensitive": true
+}
