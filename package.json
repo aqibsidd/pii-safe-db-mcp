@@ -1,6 +1,6 @@
 {
   "name": "pii-safe-db-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server for MySQL & PostgreSQL that masks PII before it reaches the LLM, with SQL AST policy enforcement (no sensitive columns in WHERE/JOIN/GROUP BY/ORDER BY), table allowlists, audit logging and Indian PII recognisers. Read-only by design.",
   "main": "dist/index.js",
   "scripts": {

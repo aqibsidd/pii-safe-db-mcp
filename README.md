@@ -48,6 +48,7 @@ Every value this query *returns* can be masked, yet it still uses the customer's
 
 | Tool | What it does |
 |---|---|
+| `protection_status` | Reports whether protection is ON or OFF, which policy file is loaded, and any policy error. It's read-only: the model **can't** change protection. |
 | `list_tables` | Lists the tables and views this server is allowed to access |
 | `describe_table` | Shows columns and types, each column's PII class and policy (`visible` / `masked` / `blocked`), and which clauses it may be used in |
 | `query` | Runs one read-only SQL statement, checked against the policy, and returns masked rows (capped at `MAX_ROWS`) |
@@ -82,6 +83,69 @@ claude mcp add safe-db \
   -e PII_POLICY_FILE=$PWD/pii-policy.json \
   -- npx -y pii-safe-db-mcp
 ```
+
+## Managing it from Claude Code (v0.3)
+
+### Slash commands
+
+Install them once:
+
+```bash
+npx -y pii-safe-db-mcp install-commands             # for you, in every project (~/.claude/commands)
+npx -y pii-safe-db-mcp install-commands --project   # for this repo only (.claude/commands), commit to share
+```
+
+Restart Claude Code, then type `/` to see them:
+
+| Command | What it does |
+|---|---|
+| `/pii-status` | Shows the protection mode and the current policy |
+| `/pii-add customers full_name,mobile_no --strict` | Masks more columns. Flags: `--strict` (all rules below), `--no-filter`, `--no-join`, `--no-group`, `--no-sort` |
+| `/pii-block customers kyc_url,aadhaar_image` | Blocks columns completely |
+| `/pii-remove customers mobile_no` | Stops masking or blocking listed columns ¹ |
+| `/pii-tables allow crm.*,loans` · `/pii-tables deny salaries` | Edits the table allowlist and denylist ¹ |
+| `/pii-json {"customers":{"sensitive_columns":["name"],"allow_joining":false}}` | Merges a JSON snippet into the policy ¹ |
+| `/pii-off [30m\|2h]` | Turns protection OFF temporarily ¹ (see below) |
+| `/pii-on` | Turns protection back ON |
+
+¹ These commands loosen protection, so they are marked `disable-model-invocation`: only **you** can run them, never Claude on its own.
+
+**Policy changes are live on the next query, with no reconnect needed.** The server re-reads the policy file whenever it changes. If an edit is invalid, the server keeps the last valid policy and reports the error through `protection_status`, so a broken edit can never weaken protection.
+
+### Protection ON / OFF
+
+With protection **OFF**, the server behaves like a plain read-only MySQL or Postgres MCP: no masking and no policy. That's useful when you need to debug real values on a dev database. Because this is exactly what an attacker or a prompt-injected model would want, it's deliberately guarded:
+
+| Safeguard | Detail |
+|---|---|
+| Opt-in per server | The server ignores OFF requests unless it was started with `PII_ALLOW_UNPROTECTED_MODE=true`. Leave this unset for production databases. |
+| Not an MCP tool | The model can't switch modes. `/pii-off` is human-only. |
+| Auto-expires | OFF lasts 30 minutes by default and 8 hours at most. Tampered or expired state is ignored. |
+| Still read-only | Writes are blocked in both modes. |
+| Visible | Every response in OFF mode starts with a `_protection: "PII protection is OFF…"` banner. |
+| Audited | Every switch is logged (`PROTECTION_OFF` / `PROTECTION_ON`), every call records `"protection": "on"\|"off"`, and refused OFF requests are logged as `BLOCKED`. The audit log never contains raw values, in either mode. |
+
+```bash
+# Allow OFF mode for this (dev) server only:
+claude mcp add safe-db-dev -e DATABASE_URL=... -e PII_ALLOW_UNPROTECTED_MODE=true -- npx -y pii-safe-db-mcp
+```
+
+Then use `/pii-off 1h` and `/pii-on` in Claude Code, with no reconnect needed. The **Reconnect** and **Disable** options in `/mcp` belong to Claude Code: Reconnect restarts the server, and Disable removes it entirely. Neither switches to unmasked mode.
+
+### The same from a terminal
+
+```bash
+npx -y pii-safe-db-mcp policy add customers full_name,mobile_no --strict
+npx -y pii-safe-db-mcp policy block customers kyc_url
+npx -y pii-safe-db-mcp policy remove customers mobile_no
+npx -y pii-safe-db-mcp policy allow-table "crm.*,loans"
+npx -y pii-safe-db-mcp policy merge '{"loans":{"sensitive_columns":["borrower_name"]}}'
+npx -y pii-safe-db-mcp policy show
+npx -y pii-safe-db-mcp mode off --for 30m      # / mode on / mode status
+npx -y pii-safe-db-mcp help
+```
+
+Files default to `~/.config/pii-safe-db/policy.json` and `state.json`. Change them with `--file` / `--state`, or with `PII_POLICY_FILE` / `PII_STATE_FILE` / `PII_CONFIG_DIR`. The server and the CLI must point at the same files. `install-commands` records any custom path in the commands it writes.
 
 ## Policy file
 
@@ -176,7 +240,11 @@ By default, one JSON line per tool call is written to stderr. Set `AUDIT_LOG` to
 | `DB_TYPE` | inferred | `mysql` or `postgres` (needed only if you don't set `DATABASE_URL`) |
 | `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | – | Alternative to `DATABASE_URL` |
 | `DB_SSL` | `false` | Enables TLS, with certificate verification |
-| `PII_POLICY_FILE` | – | Path to the JSON policy file (see above) |
+| `PII_POLICY_FILE` | `~/.config/pii-safe-db/policy.json` | Path to the JSON policy file (see above). It's hot-reloaded on change |
+| `PII_CONFIG_DIR` | `~/.config/pii-safe-db` | Directory for the default policy and state files |
+| `PII_STATE_FILE` | `<config dir>/state.json` | Protection on/off state written by `/pii-on` and `/pii-off` |
+| `PII_PROTECTION` | `on` | Set `off` to start unprotected (only honoured with `PII_ALLOW_UNPROTECTED_MODE=true`) |
+| `PII_ALLOW_UNPROTECTED_MODE` | `false` | Lets this server honour OFF requests. Leave it unset for production |
 | `PII_POLICY` | – | The policy as an inline JSON string, instead of a file |
 | `ALLOWED_TABLES` / `DENIED_TABLES` | – | Comma-separated shortcut for the allow and deny lists |
 | `POLICY_FAIL_CLOSED` | auto | Forces fail-closed on (`true`) or off (`false`) |
@@ -251,6 +319,7 @@ The test suites:
 | `test/pii.test.mjs` | Detection and masking |
 | `test/security.test.mjs` | SQL bypass attempts in both dialects, Indian recognisers, error sanitisation, audit |
 | `test/regression.test.mjs` | Runs the MCP server in memory, calls every tool and error path, and asserts that **no raw PII appears in any response or audit record** |
+| `test/modes.test.mjs` | Protection ON/OFF (opt-in, expiry, tamper resistance, audit), policy hot-reload, CLI and slash commands |
 
 ## License
 

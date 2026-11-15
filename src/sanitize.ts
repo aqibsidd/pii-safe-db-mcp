@@ -33,13 +33,7 @@ export function sanitiseResult(result: QueryResult, opts: PiiOptions, maxRows: n
     if (t) maskedColumns[c.name] = t;
   });
 
-  // Ensure unique keys for duplicate column names (e.g. joins).
-  const seen = new Map<string, number>();
-  const keys = result.columns.map((c) => {
-    const n = seen.get(c.name) ?? 0;
-    seen.set(c.name, n + 1);
-    return n === 0 ? c.name : `${c.name}_${n + 1}`;
-  });
+  const keys = uniqueKeys(result.columns);
 
   const inline: ScanStats = {};
   const slice = result.rows.slice(0, maxRows);
@@ -65,4 +59,34 @@ export function countPii(r: SafeResult): number {
   const masked = Object.keys(r.maskedColumns).length * r.rows.length;
   const inline = Object.values(r.inlinePiiMasked).reduce((a, b) => a + b, 0);
   return masked + inline;
+}
+
+/** Unique object keys for duplicate column names (e.g. joins). */
+export function uniqueKeys(columns: ColumnMeta[]): string[] {
+  const seen = new Map<string, number>();
+  return columns.map((c) => {
+    const n = seen.get(c.name) ?? 0;
+    seen.set(c.name, n + 1);
+    return n === 0 ? c.name : `${c.name}_${n + 1}`;
+  });
+}
+
+/** JSON-safe value WITHOUT masking (protection OFF mode). */
+export function plainValue(v: unknown): unknown {
+  if (v === undefined) return null;
+  if (typeof v === "bigint") return v.toString();
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v.toISOString();
+  if (Buffer.isBuffer(v)) return `<binary ${v.length} bytes>`;
+  return v;
+}
+
+/** Unmasked result (protection OFF mode): same shape as SafeResult, no masking metadata. */
+export function plainResult(result: QueryResult, maxRows: number) {
+  const keys = uniqueKeys(result.columns);
+  const rows = result.rows.slice(0, maxRows).map((row) => {
+    const obj: Record<string, unknown> = {};
+    keys.forEach((k, i) => (obj[k] = plainValue(row[i])));
+    return obj;
+  });
+  return { columns: keys, rows, rowCount: result.rows.length, truncated: result.rows.length > maxRows };
 }
