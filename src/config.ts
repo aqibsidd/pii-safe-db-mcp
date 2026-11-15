@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { MaskMode, PiiOptions } from "./pii.js";
-import { compileCustomPatterns, Policy, readPolicyFile } from "./policy.js";
+import { Policy, PolicyStore } from "./policy.js";
 import type { AuditOptions } from "./audit.js";
+import { policyPath, statePath } from "./paths.js";
+import { ProtectionController } from "./state.js";
 
 export type DbType = "mysql" | "postgres";
 
@@ -17,8 +19,14 @@ export interface Config {
   maxRows: number;
   timeoutMs: number;
   blockedColumns: Set<string>;
-  pii: PiiOptions;
-  policy: Policy;
+  /** Hot-reloading policy (re-read when the policy file changes). */
+  store: PolicyStore;
+  /** Protection on/off controller. */
+  protection: ProtectionController;
+  /** Current PII options (getter → latest policy snapshot). */
+  readonly pii: PiiOptions;
+  /** Current policy (getter → latest policy snapshot). */
+  readonly policy: Policy;
   audit: AuditOptions;
 }
 
@@ -63,23 +71,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("PII_MASK_MODE must be one of: token, partial, redact");
   }
 
-  const policyFile = readPolicyFile(env.PII_POLICY_FILE, env.PII_POLICY);
-  const custom = compileCustomPatterns(policyFile.custom_patterns);
   const blockedColumns = list(env.PII_BLOCKED_COLUMNS);
-
-  const pii: PiiOptions = {
+  const basePii: PiiOptions = {
     mode,
     secret: env.PII_TOKEN_SECRET || randomBytes(32).toString("hex"),
     allowColumns: list(env.PII_ALLOW_COLUMNS),
     extraColumns: list(env.PII_EXTRA_COLUMNS),
     scanValues: bool(env.PII_SCAN_VALUES, true),
-    customRules: custom.valueRules,
-    customColumns: custom.columnTypes,
   };
 
-  if (env.POLICY_FAIL_CLOSED !== undefined) policyFile.fail_closed = bool(env.POLICY_FAIL_CLOSED, true);
+  const store = new PolicyStore({
+    inline: env.PII_POLICY,
+    path: policyPath(env),
+    basePii,
+    globalBlocked: blockedColumns,
+    extraAllowed: list(env.ALLOWED_TABLES),
+    extraDenied: list(env.DENIED_TABLES),
+    failClosed: env.POLICY_FAIL_CLOSED !== undefined ? bool(env.POLICY_FAIL_CLOSED, true) : undefined,
+  });
 
-  const policy = new Policy(policyFile, pii, blockedColumns, list(env.ALLOWED_TABLES), list(env.DENIED_TABLES));
+  const protection = new ProtectionController({
+    envMode: env.PII_PROTECTION,
+    allowUnprotected: bool(env.PII_ALLOW_UNPROTECTED_MODE, false),
+    statePath: statePath(env),
+  });
 
   return {
     dbType,
@@ -93,8 +108,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxRows: Math.max(1, Number(env.MAX_ROWS ?? 200)),
     timeoutMs: Math.max(1000, Number(env.QUERY_TIMEOUT_MS ?? 15000)),
     blockedColumns,
-    pii,
-    policy,
+    store,
+    protection,
+    get pii() {
+      return store.current().pii;
+    },
+    get policy() {
+      return store.current().policy;
+    },
     audit: {
       target: env.AUDIT_LOG ?? "stderr",
       actor: env.AUDIT_ACTOR ?? "",

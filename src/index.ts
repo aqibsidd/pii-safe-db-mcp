@@ -1,32 +1,14 @@
 #!/usr/bin/env node
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "./config.js";
-import { createAdapter, type DbAdapter } from "./db.js";
-import { AuditLogger } from "./audit.js";
-import { createServer, VERSION } from "./server.js";
+import { CLI_COMMANDS, runCli } from "./cli.js";
 
-const cfg = loadConfig();
-let db: DbAdapter | undefined;
-const getDb = async () => (db ??= await createAdapter(cfg));
-const server = createServer(cfg, getDb, new AuditLogger(cfg.audit));
+const args = process.argv.slice(2);
 
-async function main() {
-  await server.connect(new StdioServerTransport());
-  console.error(
-    `pii-safe-db-mcp ${VERSION} running on stdio (${cfg.dbType}, mask mode: ${cfg.pii.mode}, policy: ${
-      cfg.policy.failClosed ? "fail-closed" : "permissive"
-    }, audit: ${cfg.audit.target})`,
-  );
+if (args.length > 0 && CLI_COMMANDS.has(args[0])) {
+  process.exitCode = runCli(args);
+} else {
+  const { startServer } = await import("./main.js");
+  startServer().catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
 }
-
-async function shutdown() {
-  await db?.close().catch(() => undefined);
-  process.exit(0);
-}
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});

@@ -13,6 +13,8 @@ export interface AuditRecord {
   tool: string;
   operation: string;
   decision: Decision;
+  /** Whether PII protection was ON or OFF for this call. */
+  protection?: "on" | "off";
   reason?: string;
   tables?: string[];
   duration_ms: number;
@@ -54,6 +56,7 @@ export class AuditLogger {
     operation: string;
     decision: Decision;
     started: number;
+    protection?: "on" | "off";
     reason?: string;
     tables?: string[];
     rows?: number;
@@ -72,6 +75,7 @@ export class AuditLogger {
       tool: r.tool,
       operation: r.operation,
       decision: r.decision,
+      protection: r.protection,
       reason: r.reason,
       tables: r.tables,
       duration_ms: Date.now() - r.started,

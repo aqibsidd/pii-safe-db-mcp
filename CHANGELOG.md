@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0: Protection mode, policy CLI and Claude Code slash commands
+
+### Added
+- **Protection ON/OFF.** OFF behaves like a plain read-only database MCP, with no masking and no policy. It's guarded in several ways:
+  - it needs `PII_ALLOW_UNPROTECTED_MODE=true` on the server
+  - it isn't an MCP tool, so the model can't toggle it
+  - it auto-expires after 30 minutes by default, 8 hours at most, and tampered or expired state is ignored
+  - it stays read-only
+  - every response carries a banner
+  - every switch, and every refused request, is audited
+- **`protection_status` tool** (read-only)
+- **Policy hot-reload**: edits to the policy file apply on the next call with no reconnect. Invalid edits keep the previous policy and report the error.
+- **Policy validation** with readable error messages
+- **CLI**:
+  - `mode status|on|off [--for 30m]`
+  - `policy show|path|init|add|block|remove|allow-table|deny-table|tables|merge`
+  - `install-commands [--project]`
+- **Claude Code slash commands**: `/pii-status`, `/pii-on`, `/pii-off`, `/pii-add`, `/pii-block`, `/pii-remove`, `/pii-tables`, `/pii-json`. The loosening commands are marked `disable-model-invocation`.
+- **New env vars**: `PII_PROTECTION`, `PII_ALLOW_UNPROTECTED_MODE`, `PII_CONFIG_DIR`, `PII_STATE_FILE`
+- **Audit records** now include `"protection": "on" | "off"`
+- **`test/modes.test.mjs`**: 11 new tests
+
+### Changed
+- `PII_POLICY_FILE` now defaults to `~/.config/pii-safe-db/policy.json`, used if it exists
+- `pii_scan` recommendations now suggest the `/pii-add` command
+
 ## 0.2.0: Security hardening
 
 This release is backward compatible. Without a policy file, behaviour matches 0.1.0, with two exceptions noted under **Changed**.
